@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# addsftpuser
+#
+# 
+
+get_config() {
+    sftpServerConfigFilename="/etc/sftp_server.conf"
+    if [ -f $sftpServerConfigFilename ]; then
+        source $sftpServerConfigFilename
+    fi
+    echo "SFTP Server root directory: $sftpRootDir"
+    echo "SFTP user's group: $sftpUsersGroup"
+}
+
+verify_new_username() {
+    echo "$1"
+    if [ -z "$1" ]; then
+        echo -n "Please provide a username: "
+        read newSftpUsername
+    else
+        echo -n "Use $1 as the username for this new user? (y/n): "
+        read useArg1AsUsername
+        if [ $useArg1AsUsername == 'n' ] || [ $useArg1AsUsername == 'N' ]; then
+            echo -n "Please provide a username: "
+            read newSftpUsername
+        else
+            newSftpUsername=$1
+        fi
+    fi
+}
+
+create_user() {
+    ## Create the new user.
+    sudo useradd -g $sftpUsersGroup -d $sftpRootDir/keys/$newSftpUsername -s /sbin/nologin $newSftpUsername
+
+    sudo passwd $newSftpUsername
+}
+
+create_directories() {
+    sudo mkdir -p $sftpRootDir/keys/$newSftpUsername/.ssh
+    sudo mkdir -p $sftpRootDir/home/$newSftpUsername/to_$newSftpUsername
+    sudo mkdir -p $sftpRootDir/home/$newSftpUsername/from_$newSftpUsername
+    sudo chown -R $newSftpUsername:$sftpUsersGroup $sftpRootDir/home/$newSftpUsername/to_$newSftpUsername
+    sudo chown -R $newSftpUsername:$sftpUsersGroup $sftpRootDir/home/$newSftpUsername/from_$newSftpUsername
+    sudo chown -R $newSftpUsername:$sftpUsersGroup $sftpRootDir/keys/$newSftpUsername/.ssh
+    sudo chmod 700 $sftpRootDir/keys/$newSftpUsername/.ssh
+    sudo touch $sftpRootDir/keys/$newSftpUsername/.ssh/authorized_keys
+    sudo chown $newSftpUsername:$sftpUsersGroup $sftpRootDir/keys/$newSftpUsername/.ssh/authorized_keys
+    sudo chmod 600 $sftpRootDir/keys/$newSftpUsername/.ssh/authorized_keys
+}
+
+
+# ---------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------
+get_config
+verify_new_username
+create_user
+create_directories

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 display_greeting() {
     echo "======================================================================"
@@ -197,6 +197,51 @@ EOT
     fi
 }
 
+review_restart_sshd() {
+    makeFurtherChangesDefault="n"
+    echo "Please review your OpenSSH server configuration file to verify it is sane."
+    read -p "Press Enter when ready."
+    sudo less /etc/ssh/sshd_config
+    echo -n "Would you like to make further changes to your configuration manually? (y/n): "
+    read makeFurtherChanges
+    if [ -z "$makeFurtherChanges" ]; then
+        makeFurtherChanges=$makeFurtherChangesDefault
+    fi
+    if [ $makeFurtherChanges == 'y' ] || [ $makeFurtherChanges == 'Y' ]; then
+        sudo vi /etc/ssh/sshd_config
+    fi
+    echo "You need to restart the OpenSSH Server process to use the new changes."
+    echo -n "Would you like to restart now (y/n): "
+    read restartNow
+    if [ $restartNow == 'y' ] || [ $restartNow == 'Y' ]; then
+        sudo systemctl restart sshd
+        sudo systemctl status sshd
+    fi
+}
+
+finish_message() {
+    echo "All done.  Bye :)"
+    exit
+}
+
+save_config() {
+    sftpServerConfigFilename="/etc/sftp_server.conf"
+    sftpServerConfigFilenameTemp="/tmp/sftp4808981234"
+    if [ -f $sftpServerConfigFilename ]; then
+        echo "WARNING!  /etc/sftp_server.conf already exists!"
+        echo "Exiting."
+        exit
+    fi
+    sudo cat <<EOT > $sftpServerConfigFilenameTemp
+# This configuration file is used by the addsftpuser script. Please do
+# not edit this manually unless you know what you are doing.
+sftpRootDir=$sftpRootDir
+sftpUsersGroup=$sftpUsersGroup
+EOT
+    sudo mv $sftpServerConfigFilenameTemp $sftpServerConfigFilename
+    echo "Configuration saved to disk at /etc/sftp_server.conf"
+}
+
 # ---------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------
@@ -206,3 +251,6 @@ verify_openssh_install
 verify_sftp_group
 verify_sftp_home_dir
 update_sshd_config
+review_restart_sshd
+save_config
+finish_message
