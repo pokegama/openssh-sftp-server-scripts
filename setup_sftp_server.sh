@@ -1,9 +1,39 @@
 #!/bin/sh
+# 
+#   setup_sftp_server.sh
+# 
+#   SYNOPSIS
+#       bash setup_sftp_server.sh
+# 
+#   DESCRIPTION
+#       This script will guide you through the process of setting up the
+#       localhost as an OpenSSH SFTP server.
+# 
+#   SUPPORTED DISTRIBUTIONS: 
+#       setup_sftp_server.sh has been tested successfully on the following.
+#           Fedora 28
+#           CentOS 7
+#           Debian 9
+#           Devuan 2
+#
 
 display_greeting() {
     echo "======================================================================"
-    echo "Setting OpenSSH SFTP Server"
+    echo "Setting up OpenSSH SFTP Server"
     echo "======================================================================"
+}
+
+guess_os() {
+    osName=""
+    osVersion=""
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        osName=$ID
+        osVersion=$VERSION_ID
+    else
+        echo "Unable to determine which OS this is. Exiting"
+        exit
+    fi
 }
 
 verify_sudo() {
@@ -24,27 +54,90 @@ verify_sudo() {
 }
 
 verify_openssh_install() {
-    openSshServerPackageName="openssh-server"
-
+    if [ $osName == "fedora" ] || [ $osName == "centos" ] || [ $osName == "debian" ] || [ $osName == "devuan" ]; then
+        openSshServerPackageName="openssh-server"
+    fi
     # Verify the openssh-server package is installed.  Install if required.
     echo "Checking for package: $openSshServerPackageName"
     echo -n "Query Results: "
-    rpm -q $openSshServerPackageName
+    if [ $osName == "fedora" ] || [ $osName == "centos" ]; then
+        rpm -q $openSshServerPackageName
+    fi
+    if [ $osName == "debian" ] || [ $osName == "devuan" ]; then
+        dpkg -l $openSshServerPackageName
+    fi
     # If the query comes back with a return value of 1, prompt the user to
     # see if we should install the openssh package now.
     if [ $? -eq 1 ]; then
-        echo "The 'openssh-server' package is not installed."
+        echo "The $openSshServerPackageName package is not installed."
         echo -n "Would you like to install it now? (y/n): "
         read installOpenSshChoice
         if [ $installOpenSshChoice == 'Y' ] || [ $installOpenSshChoice == 'y' ]; then
-            sudo dnf install $openSshServerPackageName
+            if [ $osName == "fedora" ]; then
+                sudo dnf install $openSshServerPackageName
+            elif [ $osName == "centos" ]; then
+                sudo yum install $openSshServerPackageName
+            elif [ $osName == "debian" ] || [ $osName == "devuan" ]; then
+                sudo apt-get install $openSshServerPackageName
+            fi
         else
             echo "The $openSshServerPackageName package is required to proceed."
             echo "Exiting."
             exit 0
         fi
     fi
-    
+}
+
+check_for_selinux() {
+    selinux="false"
+    ## I figure the most reliable way to determine if selinux is something we
+    ## need to be concerned about is to check for the config file.
+    if [ -f /etc/selinux/config ]; then
+        ## Pull in the config variables
+        . /etc/selinux/config
+        ## If SELINUX=enforcing, then it's a safe bet that we need to be
+        ## concerned about selinux.
+        if [ $SELINUX == "enforcing" ]; then
+            selinux="true"
+            ## Now we need to verify we have the chcon and semanage utilities.
+            which chcon
+            if [ $? -eq 1 ]; then
+                echo "----------------------------------------------------------------------"
+                echo "The package containing the chcon utility needs to be installed to make" 
+                echo "changes to the SELinux policy and allow SFTP user's to use Public Key"
+                echo "Authentication."
+                echo "----------------------------------------------------------------------"
+                echo -n "Install chcon now? (y/n): "
+                read installCoreutils
+                if [ $installCoreutils == 'y' ] || [ $installCoreutils == 'Y' ]; then
+                    ## Install the package that provides chcon
+                    if [ $osName == "fedora" ]; then
+                        sudo dnf install coreutils
+                    elif [ $osName == "centos" ]; then
+                        sudo yum install coreutils
+                    fi
+                fi
+            fi
+            which semanage
+            if [ $? -eq 1 ]; then
+                echo "----------------------------------------------------------------------"
+                echo "The package containing the semanage utility needs to be installed to"
+                echo "make changes to the SELinux policy and allow SFTP user's to use Public"
+                echo "Key Authentication."
+                echo "----------------------------------------------------------------------"
+                echo -n "Install semanage now? (y/n): "
+                read installSemanage
+                if [ $installSemanage == 'y' ] || [ $installSemanage == 'Y' ]; then
+                    ## Install the package that provides semanage
+                    if [ $osName == "fedora" ]; then
+                        sudo dnf install policycoreutils-python-utils
+                    elif [ $osName == "centos" ]; then
+                        sudo yum install policycoreutils-python
+                    fi
+                fi
+            fi
+        fi
+    fi
 }
 
 verify_sftp_group() {
@@ -214,14 +307,14 @@ review_restart_sshd() {
     echo -n "Would you like to restart now (y/n): "
     read restartNow
     if [ $restartNow == 'y' ] || [ $restartNow == 'Y' ]; then
-        sudo systemctl restart sshd
-        sudo systemctl status sshd
+        if [ $osName == "fedora" ] || [ $osName == "centos" ] || [ $osName == "debian" ]; then
+            sudo systemctl restart sshd
+            sudo systemctl status sshd
+        elif [ $osName == "devuan" ]; then
+            sudo service ssh restart
+        fi
+        
     fi
-}
-
-finish_message() {
-    echo "All done.  Bye :)"
-    exit
 }
 
 save_config() {
@@ -237,20 +330,32 @@ save_config() {
 # not edit this manually unless you know what you are doing.
 sftpRootDir=$sftpRootDir
 sftpUsersGroup=$sftpUsersGroup
+selinux=$selinux
 EOT
     sudo mv $sftpServerConfigFilenameTemp $sftpServerConfigFilename
     echo "Configuration saved to disk at /etc/sftp_server.conf"
 }
 
+finish_message() {
+    echo "All done.  Bye :)"
+    exit
+}
+
+main() {
+    display_greeting
+    guess_os
+    verify_sudo
+    verify_openssh_install
+    check_for_selinux
+    verify_sftp_group
+    verify_sftp_home_dir
+    update_sshd_config
+    review_restart_sshd
+    save_config
+    finish_message
+}
+
 # ---------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------
-display_greeting
-verify_sudo
-verify_openssh_install
-verify_sftp_group
-verify_sftp_home_dir
-update_sshd_config
-review_restart_sshd
-save_config
-finish_message
+main
