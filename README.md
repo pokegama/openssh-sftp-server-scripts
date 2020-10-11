@@ -3,8 +3,6 @@ A set of scripts to help automate the process of setting up a new OpenSSH SFTP
 server, and handle user account administration.
 
 ## Fedora OpenSSH v7.x SFTP Server Setup - Manual Procedures
-https://www.devsblock.com/?p=71
-
 Make sure the openssh-server package is installed.
 ```bash
 rpm -q openssh-server
